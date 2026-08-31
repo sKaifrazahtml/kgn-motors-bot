@@ -1,206 +1,165 @@
-const dns = require('dns');
-dns.setServers(['8.8.8.8', '8.8.4.4']); // Google DNS Fix
-
 const express = require('express');
-const mongoose = require('mongoose');
 const axios = require('axios');
-require('dotenv').config();
+const mongoose = require('mongoose');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(express.json());
 
-// User session memory (temporary state tracking)
-const userState = {};
+// -------------------------------------------------------------
+// 1. ENVIRONMENT VARIABLES & AI INITIALIZATION
+// -------------------------------------------------------------
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+const VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// MongoDB Schema for Booking
-const bookingSchema = new mongoose.Schema({
-  phone: String,
-  customerName: String,
-  vehicleNumber: String,
-  serviceType: String,
-  status: { type: String, default: 'Received' },
-  createdAt: { type: Date, default: Date.now }
-});
+// Gemini AI Client Setup
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-const Booking = mongoose.model('Booking', bookingSchema);
+// -------------------------------------------------------------
+// 2. HELPER FUNCTIONS
+// -------------------------------------------------------------
 
-// Database Connection
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('✅ Connected to MongoDB Atlas'))
-  .catch(err => console.error('❌ MongoDB Connection Error:', err));
+// Helper 1: Send Standard WhatsApp Text Message
+async function sendTextMessage(to, text) {
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: to,
+        type: 'text',
+        text: { body: text }
+      },
+      { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    );
+  } catch (err) {
+    console.error('Error sending text message:', err.response?.data || err.message);
+  }
+}
 
-// Webhook Verification
+// Helper 2: Send Interactive Main Menu Buttons
+async function sendMainMenu(to) {
+  try {
+    await axios.post(
+      `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: to,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: {
+            text: "Welcome to *K.G.N. MOTORS & PARTS*! 🛠️\n\nAapki kya madad kar sakte hain? Niche diye gaye options me se choose karein:"
+          },
+          action: {
+            buttons: [
+              { type: 'reply', reply: { id: 'btn_parts', title: '🔩 Parts Inquiry' } },
+              { type: 'reply', reply: { id: 'btn_booking', title: '🛠️ Book Service' } },
+              { type: 'reply', reply: { id: 'btn_ai_help', title: '🤖 Ask AI Mechanic' } }
+            ]
+          }
+        }
+      },
+      { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
+    );
+  } catch (err) {
+    console.error('Error sending Interactive Buttons:', err.response?.data || err.message);
+  }
+}
+
+// Helper 3: Gemini AI Response Generator
+async function getGeminiResponse(userPrompt) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `You are an expert automotive mechanic assistant for K.G.N. MOTORS & PARTS. Answer the customer's vehicle problem briefly and accurately in simple Hindi/Hinglish: ${userPrompt}`;
+    
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text();
+  } catch (err) {
+    console.error("Gemini AI Error:", err);
+    return "Maaf kijiye, abhi AI assistant response nahi de pa raha hai. Kripya thodi der baad prayas karein.";
+  }
+}
+
+// -------------------------------------------------------------
+// 3. WEBHOOK ROUTES
+// -------------------------------------------------------------
+
+// Meta Webhook Verification Endpoint (GET)
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
+  if (mode && token) {
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+      console.log('WEBHOOK_VERIFIED');
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
+    }
   }
 });
 
-// Incoming Messages Handler
+// Incoming WhatsApp Event Handler Endpoint (POST)
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
-  if (body.object === 'whatsapp_business_account') {
-    const entry = body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const messageData = changes?.value?.messages?.[0];
+  if (body.object) {
+    if (
+      body.entry &&
+      body.entry[0].changes &&
+      body.entry[0].changes[0].value.messages &&
+      body.entry[0].changes[0].value.messages[0]
+    ) {
+      const message = body.entry[0].changes[0].value.messages[0];
+      const from = message.from;
+      const msgType = message.type;
 
-    if (messageData) {
-      const from = messageData.from;
-      let text = '';
+      console.log(`💬 Message received from ${from} [Type: ${msgType}]`);
 
-      if (messageData.type === 'text') {
-        text = messageData.text.body.trim();
-      } else if (messageData.type === 'interactive') {
-        text = messageData.interactive.button_reply.id;
+      // 1. Handle Button Clicks
+      if (msgType === 'interactive') {
+        const buttonId = message.interactive.button_reply.id;
+
+        if (buttonId === 'btn_parts') {
+          await sendTextMessage(from, "🔩 **Spare Parts Query:**\nAapko kis gadi ka part chahiye? (e.g., *Bolero BS6 Injector*, *Jeeto Clutch Plate*)");
+        } else if (buttonId === 'btn_booking') {
+          await sendTextMessage(from, "🛠️ **Service Booking:**\nApni vehicle ka number aur issue type batayein:\nExample: *MP09AB1234 - Oil Change & General Service*");
+        } else if (buttonId === 'btn_ai_help') {
+          await sendTextMessage(from, "🤖 **AI Mechanic Helpline Active!**\nApni gadi ki dikkat batayein (e.g., *Bolero starting problem with black smoke*):");
+        }
+      } 
+      // 2. Handle Photo/Image Uploads
+      else if (msgType === 'image') {
+        await sendTextMessage(from, "📷 Part ki photo mil gayi hai! Humare mechanic ise review karke aapko jald update denge.");
+      } 
+      // 3. Handle Normal Text Messages
+      else if (msgType === 'text') {
+        const text = message.text.body.trim();
+
+        if (['hi', 'hello', 'menu', 'start', 'help'].includes(text.toLowerCase())) {
+          await sendMainMenu(from);
+        } else {
+          const aiReply = await getGeminiResponse(text);
+          await sendTextMessage(from, `🤖 *AI Suggestion:*\n${aiReply}`);
+        }
       }
-
-      console.log(`💬 Message from ${from}: ${text}`);
-
-      await handleUserLogic(from, text);
     }
-
-    res.status(200).send('EVENT_RECEIVED');
+    res.sendStatus(200);
   } else {
     res.sendStatus(404);
   }
 });
 
-// Business Logic Router
-async function handleUserLogic(from, text) {
-  const state = userState[from] || { step: 'IDLE' };
-  const lowerText = text.toLowerCase();
-
-  // 1. Initial Greeting / Menu (Updated Garage Name)
-  if (lowerText === 'hi' || lowerText === 'hello' || lowerText === 'menu' || text === 'MAIN_MENU') {
-    userState[from] = { step: 'IDLE' };
-    await sendInteractiveButtons(from, 'Welcome to K.G.N. MOTORS & PARTS! 🚗🔧\nKripya niche diye gaye options me se chunein:');
-    return;
-  }
-
-  // 2. Button Handlers
-  if (text === 'BTN_BOOK') {
-    userState[from] = { step: 'AWAITING_NAME' };
-    await sendTextMessage(from, '📝 Service Booking:\nKripya apna **Naam** likhkar bhejein:');
-    return;
-  }
-
-  if (text === 'BTN_STATUS') {
-    userState[from] = { step: 'AWAITING_VEHICLE_NO' };
-    await sendTextMessage(from, '🔍 Vehicle Status Check:\nApna **Vehicle Number** likhkar bhejein (e.g., MP09AB1234):');
-    return;
-  }
-
-  // 3. Sequential Form Handling
-  if (state.step === 'AWAITING_NAME') {
-    userState[from] = { step: 'AWAITING_VEHICLE', name: text };
-    await sendTextMessage(from, `Dhanyawad ${text}! Ab apna **Vehicle Number** (e.g. MP09AB1234) bhejein:`);
-    return;
-  }
-
-  if (state.step === 'AWAITING_VEHICLE') {
-    const customerName = state.name;
-    const vehicleNo = text.toUpperCase();
-
-    // Save to Database
-    const newBooking = new Booking({
-      phone: from,
-      customerName: customerName,
-      vehicleNumber: vehicleNo,
-      serviceType: 'General Service'
-    });
-
-    await newBooking.save();
-    userState[from] = { step: 'IDLE' };
-
-    // Customer ko Confirmation Reply
-    await sendTextMessage(from, `✅ **Booking Confirmed!**\n\nGarage: K.G.N. MOTORS & PARTS 🛠️\nName: ${customerName}\nVehicle: ${vehicleNo}\nStatus: Received\n\nHum jald hi aapki gadi inspect karenge!`);
-
-    // 🔔 Aapke Personal WhatsApp Number (918223829866) par Alert Message:
-    const ownerNumber = process.env.OWNER_PHONE_NUMBER || '918223829866';
-    const ownerAlert = `🚨 **NEW BOOKING ALERT!** 🚗\n\n🏪 **Garage:** K.G.N. MOTORS & PARTS\n👤 **Customer:** ${customerName}\n📞 **Phone:** ${from}\n🚘 **Vehicle:** ${vehicleNo}\n📅 **Time:** ${new Date().toLocaleString()}`;
-    
-    await sendTextMessage(ownerNumber, ownerAlert);
-
-    return;
-  }
-
-  if (state.step === 'AWAITING_VEHICLE_NO') {
-    const vehicleNo = text.toUpperCase();
-    const booking = await Booking.findOne({ vehicleNumber: vehicleNo }).sort({ createdAt: -1 });
-
-    userState[from] = { step: 'IDLE' };
-
-    if (booking) {
-      await sendTextMessage(from, `🚗 **Vehicle Status (K.G.N. MOTORS):**\n\nOwner: ${booking.customerName}\nVehicle: ${booking.vehicleNumber}\nCurrent Status: *${booking.status}*\nDate: ${new Date(booking.createdAt).toLocaleDateString()}`);
-    } else {
-      await sendTextMessage(from, `❌ Vehicle number **${vehicleNo}** ka koi record nahi mila. Kripya number check karke dubara try karein.`);
-    }
-    return;
-  }
-
-  // Fallback Message
-  await sendInteractiveButtons(from, 'Welcome to K.G.N. MOTORS & PARTS! 🚗🔧\nAapki baat samajh nahi aayi. Kripya niche diye option chunnein:');
-}
-
-// Helper: Send Text Message
-async function sendTextMessage(to, text) {
-  try {
-    await axios({
-      method: 'POST',
-      url: `https://graph.facebook.com/v18.0/${process.env.WA_PHONE_NUMBER_ID}/messages`,
-      headers: {
-        'Authorization': `Bearer ${process.env.WA_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      data: {
-        messaging_product: 'whatsapp',
-        to: to,
-        type: 'text',
-        text: { body: text }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error sending message:', error.response?.data || error.message);
-  }
-}
-
-// Helper: Send Interactive Reply Buttons
-async function sendInteractiveButtons(to, headerText) {
-  try {
-    await axios({
-      method: 'POST',
-      url: `https://graph.facebook.com/v18.0/${process.env.WA_PHONE_NUMBER_ID}/messages`,
-      headers: {
-        'Authorization': `Bearer ${process.env.WA_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      data: {
-        messaging_product: 'whatsapp',
-        to: to,
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: { text: headerText },
-          action: {
-            buttons: [
-              { type: 'reply', reply: { id: 'BTN_BOOK', title: '🛠️ Book Service' } },
-              { type: 'reply', reply: { id: 'BTN_STATUS', title: '📋 Check Status' } }
-            ]
-          }
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error sending buttons:', error.response?.data || error.message);
-  }
-}
-
+// -------------------------------------------------------------
+// 4. SERVER LISTEN
+// -------------------------------------------------------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
