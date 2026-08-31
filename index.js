@@ -39,8 +39,7 @@ async function sendTextMessage(to, text) {
   }
 }
 
-// Helper 2: Send Interactive Main Menu Buttons
-// Helper 2: Send Interactive List Menu (Recommended for multiple options)
+// Helper 2: Send Interactive List Menu (100% Reliable for multiple options)
 async function sendMainMenu(to) {
   try {
     await axios.post(
@@ -148,9 +147,14 @@ app.post('/webhook', async (req, res) => {
 
       console.log(`💬 Message received from ${from} [Type: ${msgType}]`);
 
-      // 1. Handle Button Clicks
+      // 1. Handle List / Button Clicks
       if (msgType === 'interactive') {
-        const buttonId = message.interactive.button_reply.id;
+        let buttonId = '';
+        if (message.interactive.type === 'list_reply') {
+          buttonId = message.interactive.list_reply.id;
+        } else if (message.interactive.type === 'button_reply') {
+          buttonId = message.interactive.button_reply.id;
+        }
 
         if (buttonId === 'btn_parts') {
           await sendTextMessage(from, "🔩 **Spare Parts Query:**\nAapko kis gadi ka part chahiye? (e.g., *Bolero BS6 Injector*, *Jeeto Clutch Plate*)");
