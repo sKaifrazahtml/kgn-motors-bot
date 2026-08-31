@@ -40,6 +40,7 @@ async function sendTextMessage(to, text) {
 }
 
 // Helper 2: Send Interactive Main Menu Buttons
+// Helper 2: Send Interactive List Menu (Recommended for multiple options)
 async function sendMainMenu(to) {
   try {
     await axios.post(
@@ -50,15 +51,40 @@ async function sendMainMenu(to) {
         to: to,
         type: 'interactive',
         interactive: {
-          type: 'button',
+          type: 'list',
+          header: {
+            type: 'text',
+            text: 'K.G.N. MOTORS & PARTS'
+          },
           body: {
-            text: "Welcome to *K.G.N. MOTORS & PARTS*! 🛠️\n\nAapki kya madad kar sakte hain? Niche diye gaye options me se choose karein:"
+            text: 'Welcome! Aapko kis cheez me madad chahiye? Niche button par click karke option select karein:'
+          },
+          footer: {
+            text: 'Select an option below 👇'
           },
           action: {
-            buttons: [
-              { type: 'reply', reply: { id: 'btn_parts', title: '🔩 Parts Inquiry' } },
-              { type: 'reply', reply: { id: 'btn_booking', title: '🛠️ Book Service' } },
-              { type: 'reply', reply: { id: 'btn_ai_help', title: '🤖 Ask AI Mechanic' } }
+            button: 'Menu Options 🛠️',
+            sections: [
+              {
+                title: 'Our Services',
+                rows: [
+                  {
+                    id: 'btn_parts',
+                    title: '🔩 Spare Parts Inquiry',
+                    description: 'Check stock & rates for Bolero, Jeeto, etc.'
+                  },
+                  {
+                    id: 'btn_booking',
+                    title: '🛠️ Book Service Slot',
+                    description: 'Schedule garage service or repair'
+                  },
+                  {
+                    id: 'btn_ai_help',
+                    title: '🤖 Ask AI Mechanic',
+                    description: 'Get instant solutions for vehicle issues'
+                  }
+                ]
+              }
             ]
           }
         }
@@ -66,7 +92,7 @@ async function sendMainMenu(to) {
       { headers: { Authorization: `Bearer ${WHATSAPP_TOKEN}` } }
     );
   } catch (err) {
-    console.error('Error sending Interactive Buttons:', err.response?.data || err.message);
+    console.error('Error sending Interactive List Menu:', err.response?.data || err.message);
   }
 }
 
