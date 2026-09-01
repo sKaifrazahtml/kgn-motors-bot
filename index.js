@@ -98,7 +98,7 @@ async function sendMainMenu(to) {
 // Helper 3: Gemini AI Response Generator
 async function getGeminiResponse(userPrompt) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const prompt = `You are an expert automotive mechanic assistant for K.G.N. MOTORS & PARTS. Answer the customer's vehicle problem briefly and accurately in simple Hindi/Hinglish: ${userPrompt}`;
     
     const result = await model.generateContent(prompt);
