@@ -95,18 +95,24 @@ async function sendMainMenu(to) {
   }
 }
 
-// Helper 3: Gemini AI Response Generator
+// Helper 3: Gemini AI Response Generator (Hindi / Hinglish Mode)
 async function getGeminiResponse(userPrompt) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-3.6-flash" });
-    const prompt = `You are an expert automotive mechanic assistant for K.G.N. MOTORS & PARTS. Answer the customer's vehicle problem briefly and accurately in simple Hindi/Hinglish: ${userPrompt}`;
     
+    // System Instruction Hindi me response dene ke liye:
+    const prompt = `Aap K.G.N. MOTORS & PARTS ke expert garage mechanic hain. 
+    Kripya customer ki gadi ki samasya ya query ka jawab simple aur easy Hindi (ya Hinglish) me dein.
+    Aapka jawab helpful, polite aur short hona chahiye.
+    
+    Customer Query: ${userPrompt}`;
+
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();
   } catch (err) {
     console.error("Gemini AI Error:", err);
-    return "Maaf kijiye, abhi AI assistant response nahi de pa raha hai. Kripya thodi der baad prayas karein.";
+    return "Kshama kijiye, abhi AI assistant response nahi de pa raha hai. Kripya thodi der baad prayas karein.";
   }
 }
 
